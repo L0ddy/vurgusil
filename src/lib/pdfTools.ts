@@ -332,29 +332,23 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/* ---------- dışa aktarma ---------- */
+/* ---------- dışa aktarma ----------
+ * Mobil uyumluluk: base64 (toDataURL) yerine doğrudan bayt üretiyoruz —
+ * base64 belleği %33 şişirir ve iOS'ta büyük tuvallerde toDataURL hata
+ * fırlatır. toBlob → ArrayBuffer zinciri her tarayıcıda güvenilirdir. */
 
 export interface ExportPage {
   widthPt: number;
   heightPt: number;
-  dataUrl: string;
-  mime?: "image/jpeg" | "image/png";
-}
-
-export function dataUrlToBytes(dataUrl: string): Uint8Array {
-  const comma = dataUrl.indexOf(",");
-  const b64 = dataUrl.slice(comma + 1);
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
+  /** Ham JPEG baytları */
+  bytes: Uint8Array;
 }
 
 export async function buildCleanedPdf(pages: ExportPage[]): Promise<Blob> {
   const pdfLib = await ensurePdfLib();
   const doc: PdfLibDocument = await pdfLib.PDFDocument.create();
   for (const p of pages) {
-    const img = await doc.embedJpg(dataUrlToBytes(p.dataUrl));
+    const img = await doc.embedJpg(p.bytes);
     const page = doc.addPage([p.widthPt, p.heightPt]);
     page.drawImage(img, { x: 0, y: 0, width: p.widthPt, height: p.heightPt });
   }
@@ -369,6 +363,27 @@ export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
       else reject(new Error("PNG oluşturulamadı"));
     }, "image/png");
   });
+}
+
+export function canvasToJpegBlob(
+  canvas: HTMLCanvasElement,
+  quality = 0.9
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("JPEG oluşturulamadı"));
+      },
+      "image/jpeg",
+      quality
+    );
+  });
+}
+
+export async function blobToBytes(blob: Blob): Promise<Uint8Array> {
+  const buf = await blob.arrayBuffer();
+  return new Uint8Array(buf);
 }
 
 /**
@@ -387,16 +402,64 @@ export function safeFileName(raw: string, fallback = "belge"): string {
   return name;
 }
 
-export function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = safeFileName(filename);
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+/**
+ * Dosyayı mobil-uyumlu indirir:
+ *  1) iOS / PWA: sistem paylaşım sayfası (kullanıcı "Dosyalara Kaydet" der)
+ *     — iOS'ta büyük Blob'ların doğrudan indirmesi güvenilmez olduğu için.
+ *  2) Diğer tarayıcılar: klasik `download` nitelikli bağlantı.
+ *  3) Son çare: yeni sekmede aç.
+ * Kullanıcı paylaşımı iptal ederse hata sayılmaz. Sonuç: true/false.
+ */
+export async function downloadBlob(blob: Blob, filename: string): Promise<boolean> {
+  const name = safeFileName(filename);
+  try {
+    const nav = navigator as Navigator & {
+      canShare?: (d: { files: File[] }) => boolean;
+      share?: (d: { files: File[]; title?: string }) => Promise<void>;
+      standalone?: boolean;
+    };
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const standalone =
+      (typeof window.matchMedia === "function" &&
+        window.matchMedia("(display-mode: standalone)").matches) ||
+      nav.standalone === true;
+
+    // 1) iOS ve PWA kurulumlarında paylaşım sayfası en güvenilir yoldur
+    if ((isIOSDevice || standalone) && nav.canShare && nav.share) {
+      const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
+      if (nav.canShare({ files: [file] })) {
+        try {
+          await nav.share({ files: [file], title: name });
+          return true;
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") return true; // iptal
+          // paylaşım çalışmadı → klasik indirmeye düş
+        }
+      }
+    }
+
+    // 2) Klasik indirme
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000); // belleği geri ver
+      return true;
+    } catch {
+      // 3) Son çare: yeni sekmede aç (kullanıcı oradan kaydedebilir)
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return true;
+    }
+  } catch {
+    return false;
+  }
 }
 
 /* ---------- örnek PDF üretici ---------- */
