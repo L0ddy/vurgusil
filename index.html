@@ -1,97 +1,224 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="tr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>coder-app-name</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="VurguSil — PDF sayfalarınızdaki fosforlu kalem vurgularını ve renk lekelerini tarayıcınızda temizleyin. Dosyanız cihazınızdan çıkmaz."
+    />
+    <title>VurguSil — PDF Vurgu Temizleyici</title>
+
+    <!-- PWA: kalıcı yükleme + çevrimdışı çalışma -->
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <meta name="theme-color" content="#161920" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="VurguSil" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%icons/icon.svg" />
+    <link rel="apple-touch-icon" href="%BASE_URL%icons/icon.svg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
     <style>
-      /* 内联样式确保主题色立即生效，避免闪烁 */
       html,
       body {
         margin: 0;
         padding: 0;
-        width: 100%;
+        background-color: #edeee7;
+        color: #161920;
+      }
+      #boot {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Instrument Sans", sans-serif;
+        padding: 24px;
+      }
+      #boot .b-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+      }
+      #boot .b-mark {
+        width: 56px;
+        height: 56px;
+        border-radius: 15px;
+        background: #161920;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 4px 5px 0 rgba(22, 25, 32, 0.25);
+      }
+      #boot .b-name {
+        font-family: "Syne", sans-serif;
+        font-weight: 800;
+        font-size: 21px;
+        letter-spacing: -0.02em;
+      }
+      #boot .b-sub {
+        font-family: "Spline Sans Mono", monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.22em;
+        color: rgba(22, 25, 32, 0.55);
+      }
+      #boot .b-bar {
+        width: 150px;
+        height: 6px;
+        border-radius: 4px;
+        background: rgba(22, 25, 32, 0.12);
+        overflow: hidden;
+      }
+      #boot .b-bar i {
+        display: block;
+        width: 45%;
         height: 100%;
+        border-radius: 4px;
+        background: #d8f651;
+        animation: bslide 1.1s ease-in-out infinite alternate;
       }
-      html.light,
-      html.light body {
-        background-color: #ffffff !important;
-        color: #000000;
+      #boot .b-err {
+        max-width: 360px;
+        text-align: center;
+        font-size: 12.5px;
+        line-height: 1.55;
+        color: rgba(22, 25, 32, 0.68);
       }
-      html.dark,
-      html.dark body {
-        background-color: #1a1a1a !important;
-        color: #ffffff;
+      #boot .b-btn {
+        background: #d8f651;
+        border: 2px solid #161920;
+        border-radius: 10px;
+        padding: 10px 18px;
+        font-weight: 700;
+        font-size: 12.5px;
+        cursor: pointer;
+        box-shadow: 3px 3px 0 rgba(22, 25, 32, 0.9);
+        font-family: inherit;
+      }
+      #boot .b-btn:active {
+        transform: translate(2px, 2px);
+        box-shadow: 1px 1px 0 rgba(22, 25, 32, 0.9);
+      }
+      @keyframes bslide {
+        from {
+          transform: translateX(-30%);
+        }
+        to {
+          transform: translateX(180%);
+        }
       }
     </style>
-    <script>
-      // 在 React 加载前立即设置主题，避免闪烁
-      (function () {
-        const isInIframe = window.self !== window.top;
-
-        function applyThemeToDOM(theme) {
-          document.documentElement.classList.remove("light", "dark");
-          document.documentElement.classList.add(theme);
-          document.documentElement.setAttribute("data-theme", theme);
-        }
-
-        if (isInIframe) {
-          // 监听父窗口主动推送的主题消息
-          window.addEventListener("message", function (event) {
-            if (event.data && typeof event.data.theme === "string") {
-              const theme = event.data.theme;
-              if (theme === "light" || theme === "dark") {
-                applyThemeToDOM(theme);
-              }
-            }
-          });
-        } else {
-          // 非 iframe 环境，使用默认 light 主题
-          applyThemeToDOM("light");
-        }
-      })();
-    </script>
-      <script>
-      (function () {
-        if (window.self === window.top) return;
-        var reported = {};
-        window.addEventListener("error", function (event) {
-          // 资源加载失败的 error 事件没有 message，此处仅上报 JS 运行时错误
-          if (!event || !event.message) return;
-          var key =
-            event.message + "|" + (event.filename || "") + "|" + (event.lineno || 0);
-          if (reported[key]) return; // 相同错误只上报一次，避免渲染循环刷屏
-          reported[key] = true;
-          try {
-            window.parent.postMessage(
-              {
-                type: "sandbox-runtime-error",
-                payload: {
-                  message: String(event.message).slice(0, 500),
-                  filename: event.filename || "",
-                  lineno: event.lineno || 0,
-                  colno: event.colno || 0,
-                  stack:
-                    event.error && event.error.stack
-                      ? String(event.error.stack).slice(0, 2000)
-                      : ""
-                }
-              },
-              "*"
-            );
-          } catch (e) {
-            /* 上报失败不影响页面运行 */
-          }
-        });
-      })();
-    </script>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <noscript>
+      <div style="padding: 40px; font-family: sans-serif; text-align: center">
+        VurguSil'in çalışması için JavaScript gereklidir.
+      </div>
+    </noscript>
+    <div id="root">
+      <div id="boot">
+        <div class="b-card">
+          <span class="b-mark">
+            <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.5 19.5 13 11l3.5 3.5-8.5 8.5H4.5v-3.5Z" fill="#d8f651" />
+              <path
+                d="m14.5 9.5 2.2-2.2a1.9 1.9 0 0 1 2.7 0l.8.8a1.9 1.9 0 0 1 0 2.7L18 13"
+                fill="none"
+                stroke="#d8f651"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+          </span>
+          <span class="b-name">VurguSil</span>
+          <span class="b-sub" id="boot-sub">yükleniyor…</span>
+          <span class="b-bar" id="boot-bar"><i></i></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Başlangıç bekçisi: React yüklenemezse sonsuz döngü yerine
+         görünür bir kurtarma paneli gösterir (eski önbellek / service
+         worker sorunlarında tek tıkla temizleyip yeniden dener). -->
+    <script>
+      (function () {
+        var failed = false;
+        function showFail(why) {
+          if (failed || window.__VURGUSIL_MOUNTED__) return;
+          failed = true;
+          var sub = document.getElementById("boot-sub");
+          var bar = document.getElementById("boot-bar");
+          var card = document.querySelector("#boot .b-card");
+          if (sub) {
+            sub.textContent = "başlatılamadı";
+            sub.style.color = "#c2255c";
+          }
+          if (bar) bar.style.display = "none";
+          if (card && !document.getElementById("boot-err")) {
+            var box = document.createElement("div");
+            box.id = "boot-err";
+            box.className = "b-err";
+            var p = document.createElement("p");
+            p.textContent = why;
+            var btn = document.createElement("button");
+            btn.className = "b-btn";
+            btn.textContent = "Önbelleği temizle ve yeniden dene";
+            btn.onclick = function () {
+              try {
+                if (navigator.serviceWorker) {
+                  navigator.serviceWorker.getRegistrations().then(function (rs) {
+                    rs.forEach(function (r) {
+                      r.unregister();
+                    });
+                  });
+                }
+              } catch (e) {}
+              try {
+                caches.keys().then(function (ks) {
+                  ks.forEach(function (k) {
+                    caches.delete(k);
+                  });
+                });
+              } catch (e) {}
+              setTimeout(function () {
+                location.reload();
+              }, 250);
+            };
+            var hint = document.createElement("p");
+            hint.style.cssText = "margin:10px 0 0;font-size:11px;color:rgba(22,25,32,.5)";
+            hint.textContent = "Düzelmezse Ctrl+Shift+R (sert yenile) yapın ya da tarayıcı geçmişinden site verilerini temizleyin.";
+            box.appendChild(p);
+            box.appendChild(btn);
+            box.appendChild(hint);
+            card.appendChild(box);
+          }
+        }
+        window.addEventListener("error", function (e) {
+          if (!window.__VURGUSIL_MOUNTED__) {
+            showFail("Uygulama dosyaları yüklenirken bir hata oluştu: " + (e.message || "ağ veya önbellek sorunu"));
+          }
+        });
+        window.addEventListener("unhandledrejection", function (e) {
+          if (!window.__VURGUSIL_MOUNTED__) {
+            showFail("Uygulama başlatılamadı (bir modül yüklenemedi).");
+          }
+        });
+        setTimeout(function () {
+          var root = document.getElementById("root");
+          if (root && root.querySelector("#boot")) {
+            showFail("Uygulama beklenenden uzun sürdü. Büyük olasılıkla eski bir önbellek sürümü gösteriliyor.");
+          }
+        }, 9000);
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

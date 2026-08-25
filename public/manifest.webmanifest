@@ -1,0 +1,16 @@
+{
+  "name": "VurguSil — PDF Vurgu Temizleyici",
+  "short_name": "VurguSil",
+  "description": "PDF'lerdeki fosforlu kalem izlerini ve renk lekelerini cihazında temizle. Dosyaların hiçbir yere gönderilmez.",
+  "lang": "tr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#edeee7",
+  "theme_color": "#161920",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

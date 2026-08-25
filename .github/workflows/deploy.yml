@@ -21,26 +21,26 @@ jobs:
       - name: Kodu al
         uses: actions/checkout@v4
 
-      # Depo yapısı denetimi: dosyalar web arayüzünden sürüklenirken bir alt
-      # klasöre yuvalanmışsa otomatik olarak köke taşınır. Kökte package.json
-      # yoksa hata açıkça bildirilir (kör "failed" yerine).
-      - name: Depo yapısını denetle
+      # YAPI DENETİMİ — web arayüzünden yüklemelerde dosyalar bazen bir alt
+      # klasöre yuvalanır; bu adım onları otomatik köke taşır. Dosyalar
+      # gerçekten eksikse neyin eksik olduğunu göstererek durur.
+      - name: Depo yapısını denetle ve düzelt
         run: |
-          echo "=== Depo kök içeriği ==="
-          ls -la
           if [ ! -f package.json ]; then
-            SUB=$(find . -mindepth 2 -maxdepth 3 -name package.json -not -path "*/node_modules/*" | head -n 1 | xargs -r dirname)
-            if [ -n "$SUB" ]; then
-              echo "package.json alt klasörde bulundu: $SUB — köke taşınıyor"
-              (shopt -s dotglob; mv "$SUB"/* .)
-              rmdir "$SUB" 2>/dev/null || true
-              echo "=== Taşıma sonrası kök ==="
-              ls -la
+            SUBDIR="$(find . -mindepth 2 -maxdepth 3 -name package.json -not -path './node_modules/*' -printf '%h\n' | head -n 1)"
+            if [ -n "$SUBDIR" ]; then
+              echo "::warning::package.json '$SUBDIR' içinde bulundu — dosyalar köke taşınıyor"
+              shopt -s dotglob
+              mv -n "$SUBDIR"/* . 2>/dev/null || true
+              shopt -u dotglob
             else
-              echo "::error::Depo kökünde package.json yok. Dosyaları alt klasöre değil, deponun ana dizinine yükleyin."
+              echo "::error::Depo kökünde package.json bulunamadı. Tüm proje dosyalarını (src/, public/, index.html, package.json...) depo KÖKÜNE yüklediğinden emin ol."
+              ls -la
               exit 1
             fi
           fi
+          echo "--- depo kökü ---"
+          ls -la
 
       - name: Node.js kur
         uses: actions/setup-node@v4
@@ -56,12 +56,8 @@ jobs:
       - name: Üretim derlemesi
         run: npx vite build --base=./
 
-      # enablement: depoda Pages henüz açılmamışsa otomatik etkinleştirir —
-      # "Get Pages site failed" hatasını kökten önler.
       - name: Pages yapılandırması
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Derlemeyi yükle
         uses: actions/upload-pages-artifact@v3
@@ -78,3 +74,7 @@ jobs:
       - name: Yayınla
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          # Pages henüz etkinleştirilmemişse otomatik açar —
+          # "Get Pages site failed" hatasını kalıcı olarak çözer.
+          enablement: true
