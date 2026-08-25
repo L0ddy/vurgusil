@@ -3,7 +3,9 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { cleanCanvas, type CleanSettings } from "./lib/cleaner";
 import {
   assertSafePdf,
+  blobToBytes,
   buildCleanedPdf,
+  canvasToJpegBlob,
   canvasToPngBlob,
   deviceCaps,
   disposeCanvas,
@@ -64,6 +66,38 @@ type Job = { done: number; total: number; label: string } | null;
 type Toast = { kind: "ok" | "err"; msg: string } | null;
 
 const yieldToUi = () => new Promise<void>((r) => setTimeout(r, 0));
+
+/**
+ * Sayfayı hedef DPI'da çizip istenen formata kodlar. Mobilde kodlama
+ * bellek sınırına takılırsa (iOS toBlob hatası) otomatik olarak daha
+ * küçük boyutta yeniden dener — indirme asla yarıda kalmaz.
+ */
+async function renderAndEncode(
+  doc: PDFDocumentProxy,
+  num: number,
+  included: boolean,
+  settings: CleanSettings,
+  encoder: (canvas: HTMLCanvasElement) => Promise<Blob>
+): Promise<{ blob: Blob; dpi: number }> {
+  const target = deviceCaps().exportDpi;
+  const attempts = [target, Math.round(target / 2), 400, 200];
+  let lastErr: unknown = null;
+  for (const dpi of attempts) {
+    let canvas: HTMLCanvasElement | null = null;
+    try {
+      const rendered = await renderPageAtDpi(doc, num, dpi);
+      canvas = included ? cleanCanvas(rendered.canvas, settings) : rendered.canvas;
+      if (canvas !== rendered.canvas) disposeCanvas(rendered.canvas);
+      const blob = await encoder(canvas);
+      return { blob, dpi: rendered.effectiveDpi ?? dpi };
+    } catch (e) {
+      lastErr = e;
+    } finally {
+      if (canvas) disposeCanvas(canvas);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Sayfa kodlanamadı");
+}
 
 export default function App() {
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
@@ -353,25 +387,31 @@ export default function App() {
       let realDpi = 0;
       for (let i = 0; i < pages.length; i++) {
         const p = pages[i];
-        const rendered = await renderPageAtDpi(doc, p.num);
-        realDpi ||= rendered.effectiveDpi ?? caps.exportDpi;
-        const finalCanvas = excluded.has(p.num)
-          ? rendered.canvas
-          : cleanCanvas(rendered.canvas, s);
-        if (finalCanvas !== rendered.canvas) disposeCanvas(rendered.canvas);
-        list.push({ widthPt: p.wPt, heightPt: p.hPt, dataUrl: finalCanvas.toDataURL("image/jpeg", 0.9) });
-        disposeCanvas(finalCanvas);
+        const { blob: imgBlob, dpi } = await renderAndEncode(
+          doc,
+          p.num,
+          !excluded.has(p.num),
+          s,
+          (c) => canvasToJpegBlob(c, 0.9)
+        );
+        realDpi ||= dpi;
+        list.push({ widthPt: p.wPt, heightPt: p.hPt, bytes: await blobToBytes(imgBlob) });
         setJob({ done: i + 1, total: pages.length, label: dpiLabel });
         await yieldToUi();
       }
       const blob = await buildCleanedPdf(list);
-      downloadBlob(blob, fileInfo.name.replace(/\.pdf$/i, "") + "-temiz.pdf");
-      showToast(
-        "ok",
-        `Temiz PDF indirildi — ${realDpi || caps.exportDpi} DPI · ${formatBytes(blob.size)}`
-      );
-    } catch {
-      showToast("err", "PDF oluşturulurken bir sorun oluştu.");
+      const ok = await downloadBlob(blob, fileInfo.name.replace(/\.pdf$/i, "") + "-temiz.pdf");
+      if (ok) {
+        showToast(
+          "ok",
+          `Temiz PDF indirildi — ${realDpi || caps.exportDpi} DPI · ${formatBytes(blob.size)}`
+        );
+      } else {
+        showToast("err", "İndirme başlatılamadı — tarayıcı engelledi. Tekrar dene.");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "bilinmeyen hata";
+      showToast("err", `PDF oluşturulamadı: ${msg}`);
     } finally {
       setJob(null);
       setExporting(false);
@@ -383,19 +423,20 @@ export default function App() {
     if (selected === null || !doc || exporting) return;
     setExporting(true);
     try {
-      const rendered = await renderPageAtDpi(doc, selected);
-      const finalCanvas = excluded.has(selected)
-        ? rendered.canvas
-        : cleanCanvas(rendered.canvas, settingsRef.current);
-      if (finalCanvas !== rendered.canvas) disposeCanvas(rendered.canvas);
-      const blob = await canvasToPngBlob(finalCanvas);
-      disposeCanvas(finalCanvas);
-      const base = safeFileName(fileInfo?.name.replace(/\.pdf$/i, "") ?? "sayfa");
-      downloadBlob(blob, `${base}-s${String(selected).padStart(2, "0")}-temiz.png`);
-      showToast(
-        "ok",
-        `Sayfa ${selected} PNG indirildi — ${rendered.effectiveDpi ?? deviceCaps().exportDpi} DPI.`
+      const { blob, dpi } = await renderAndEncode(
+        doc,
+        selected,
+        !excluded.has(selected),
+        settingsRef.current,
+        canvasToPngBlob
       );
+      const base = safeFileName(fileInfo?.name.replace(/\.pdf$/i, "") ?? "sayfa");
+      const ok = await downloadBlob(blob, `${base}-s${String(selected).padStart(2, "0")}-temiz.png`);
+      if (ok) {
+        showToast("ok", `Sayfa ${selected} PNG indirildi — ${dpi} DPI.`);
+      } else {
+        showToast("err", "İndirme başlatılamadı — tarayıcı engelledi. Tekrar dene.");
+      }
     } catch {
       showToast("err", "PNG oluşturulamadı.");
     } finally {
@@ -418,30 +459,36 @@ export default function App() {
       let count = 0;
       for (let i = 0; i < pages.length; i++) {
         const p = pages[i];
-        const rendered = await renderPageAtDpi(doc, p.num);
-        realDpi ||= rendered.effectiveDpi ?? caps.exportDpi;
-        const finalCanvas = excluded.has(p.num)
-          ? rendered.canvas
-          : cleanCanvas(rendered.canvas, s);
-        if (finalCanvas !== rendered.canvas) disposeCanvas(rendered.canvas);
-        const blob = await canvasToPngBlob(finalCanvas);
-        disposeCanvas(finalCanvas);
-        if (blob) {
+        try {
+          const { blob, dpi } = await renderAndEncode(
+            doc,
+            p.num,
+            !excluded.has(p.num),
+            s,
+            canvasToPngBlob
+          );
+          realDpi ||= dpi;
           zip.file(`sayfa-${String(p.num).padStart(3, "0")}.png`, blob);
           count++;
+        } catch {
+          /* tek sayfa kodlanamazsa arşiv devam eder */
         }
         setJob({ done: i + 1, total: pages.length, label: "PNG sayfaları" });
         await yieldToUi();
       }
-      if (count === 0) throw new Error("hiç sayfa yok");
+      if (count === 0) throw new Error("hiç sayfa kodlanamadı");
       setJob({ done: pages.length, total: pages.length, label: "ZIP oluşturuluyor" });
       const zipBlob = await zip.generateAsync({ type: "blob" });
       const base = safeFileName(fileInfo.name.replace(/\.pdf$/i, ""), "belge");
-      downloadBlob(zipBlob, `${base}-png-${realDpi || caps.exportDpi}dpi.zip`);
-      showToast(
-        "ok",
-        `${count} sayfa PNG indirildi — ${realDpi || caps.exportDpi} DPI (ZIP · ${formatBytes(zipBlob.size)})`
-      );
+      const ok = await downloadBlob(zipBlob, `${base}-png-${realDpi || caps.exportDpi}dpi.zip`);
+      if (ok) {
+        showToast(
+          "ok",
+          `${count} sayfa PNG indirildi — ${realDpi || caps.exportDpi} DPI (ZIP · ${formatBytes(zipBlob.size)})`
+        );
+      } else {
+        showToast("err", "İndirme başlatılamadı — tarayıcı engelledi. Tekrar dene.");
+      }
     } catch {
       showToast("err", "PNG arşivi hazırlanırken bir sorun oluştu.");
     } finally {
