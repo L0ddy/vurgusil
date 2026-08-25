@@ -1,18 +1,22 @@
 name: GitHub Pages'e Yayınla
 
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
+
 concurrency:
   group: pages
   cancel-in-progress: false
+
 
 jobs:
   build:
@@ -20,6 +24,7 @@ jobs:
     steps:
       - name: Kodu al
         uses: actions/checkout@v4
+
 
       # Depo yapısı denetimi: dosyalar web arayüzünden sürüklenirken bir alt
       # klasöre yuvalanmışsa otomatik olarak köke taşınır. Kökte package.json
@@ -42,19 +47,23 @@ jobs:
             fi
           fi
 
+
       - name: Node.js kur
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
+
       # npm install: kilit dosyası eksik ya da güncel değilse bile çalışır.
       - name: Bağımlılıkları kur
         run: npm install --no-audit --no-fund
+
 
       # --base=./ : uygulama hangi depo adıyla yayınlanırsa yayınlansın
       # (kullanici.github.io/depo-adi/) tüm yollar doğru çalışır.
       - name: Üretim derlemesi
         run: npx vite build --base=./
+
 
       # enablement: depoda Pages henüz açılmamışsa otomatik etkinleştirir —
       # "Get Pages site failed" hatasını kökten önler.
@@ -63,10 +72,12 @@ jobs:
         with:
           enablement: true
 
+
       - name: Derlemeyi yükle
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
 
   deploy:
     needs: build
